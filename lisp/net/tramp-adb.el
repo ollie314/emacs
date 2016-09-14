@@ -202,7 +202,7 @@ pass to the OPERATION."
 	    result)
 	(tramp-message v 6 "%s" (mapconcat 'identity (process-command p) " "))
 	(set-process-query-on-exit-flag p nil)
-	(while (eq 'run (process-status p))
+	(while (tramp-compat-process-live-p p)
 	  (accept-process-output p 0.1))
 	(accept-process-output p 0.1)
 	(tramp-message v 6 "\n%s" (buffer-string))
@@ -246,7 +246,9 @@ pass to the OPERATION."
 
 (defun tramp-adb-handle-file-directory-p (filename)
   "Like `file-directory-p' for Tramp files."
-  (car (file-attributes (file-truename filename))))
+  (eq (tramp-compat-file-attribute-type
+       (file-attributes (file-truename filename)))
+      t))
 
 ;; This is derived from `tramp-sh-handle-file-truename'.  Maybe the
 ;; code could be shared?
@@ -281,14 +283,15 @@ pass to the OPERATION."
 			  (append '("") (reverse result) (list thisstep))
 			  "/"))
 	      (setq symlink-target
-		    (nth 0 (file-attributes
-			    (tramp-make-tramp-file-name
-			     method user host
-			     (mapconcat 'identity
-					(append '("")
-						(reverse result)
-						(list thisstep))
-					"/")))))
+		    (tramp-compat-file-attribute-type
+		     (file-attributes
+		      (tramp-make-tramp-file-name
+		       method user host
+		       (mapconcat 'identity
+				  (append '("")
+					  (reverse result)
+					  (list thisstep))
+				  "/")))))
 	      (cond ((string= "." thisstep)
 		     (tramp-message v 5 "Ignoring step `.'"))
 		    ((string= ".." thisstep)
@@ -712,7 +715,10 @@ PRESERVE-UID-GID and PRESERVE-EXTENDED-ATTRIBUTES are completely ignored."
 
     ;; KEEP-DATE handling.
     (when keep-date
-      (set-file-times newname (nth 5 (file-attributes filename))))))
+      (set-file-times
+       newname
+       (tramp-compat-file-attribute-modification-time
+	(file-attributes filename))))))
 
 (defun tramp-adb-handle-rename-file
   (filename newname &optional ok-if-already-exists)
@@ -1168,8 +1174,7 @@ connection if a previous connection has died for some reason."
     (when (and user (not (tramp-get-file-property vec "" "su-command-p" t)))
       (tramp-error vec 'file-error "Cannot switch to user `%s'" user))
 
-    (unless
-	(and p (processp p) (memq (process-status p) '(run open)))
+    (unless (tramp-compat-process-live-p p)
       (save-match-data
 	(when (and p (processp p)) (delete-process p))
 	(if (zerop (length device))
@@ -1188,7 +1193,7 @@ connection if a previous connection has died for some reason."
 	     vec 6 "%s" (mapconcat 'identity (process-command p) " "))
 	    ;; Wait for initial prompt.
 	    (tramp-adb-wait-for-output p 30)
-	    (unless (eq 'run (process-status p))
+	    (unless (tramp-compat-process-live-p p)
 	      (tramp-error  vec 'file-error "Terminated!"))
 	    (tramp-set-connection-property p "vector" vec)
 	    (set-process-query-on-exit-flag p nil)

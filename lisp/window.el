@@ -1381,10 +1381,21 @@ return the minimum pixel-size of WINDOW."
 	  (let* ((char-size (frame-char-size window t))
 		 (fringes (window-fringes window))
 		 (margins (window-margins window))
+                 ;; Let the 'min-margins' parameter override the actual
+                 ;; widths of the margins.  We allow any number to
+                 ;; replace the values specified by `window-margins'.
+                 ;; See bug#24193 for the rationale of this parameter.
+                 (min-margins (window-parameter window 'min-margins))
+                 (left-min-margin (and min-margins
+                                       (numberp (car min-margins))
+                                       (car min-margins)))
+                 (right-min-margin (and min-margins
+                                        (numberp (cdr min-margins))
+                                        (cdr min-margins)))
 		 (pixel-width
 		  (+ (window-safe-min-size window t t)
-		     (* (or (car margins) 0) char-size)
-		     (* (or (cdr margins) 0) char-size)
+		     (* (or left-min-margin (car margins) 0) char-size)
+		     (* (or right-min-margin(cdr margins) 0) char-size)
 		     (car fringes) (cadr fringes)
 		     (window-scroll-bar-width window)
 		     (window-right-divider-width window))))
@@ -4771,7 +4782,7 @@ frame.  The selected window is not changed by this function."
 			(window-sizable-p
 			 parent (- (+ new-pixel-size divider-width)) horizontal
 			 (setq ignore 'preserved) t))
-	      (error "Window %s too small for splitting (1)" parent)))
+	      (error "Window %s too small for splitting" parent)))
 	   ((and (> (+ new-pixel-size divider-width
 		       (window-min-size window horizontal nil t))
 		    old-pixel-size)
@@ -4780,7 +4791,7 @@ frame.  The selected window is not changed by this function."
 			window horizontal (setq ignore 'preserved) t))
 		    old-pixel-size))
 	    ;; SIZE unspecified, no resizing.
-	    (error "Window %s too small for splitting (2)" window))))
+	    (error "Window %s too small for splitting" window))))
 	 ((and (>= pixel-size 0)
 	       (or (>= pixel-size old-pixel-size)
 		   (< new-pixel-size
@@ -4788,7 +4799,7 @@ frame.  The selected window is not changed by this function."
 	  ;; SIZE specified as new size of old window.  If the new size
 	  ;; is larger than the old size or the size of the new window
 	  ;; would be less than the safe minimum, signal an error.
-	  (error "Window %s too small for splitting (3)" window))
+	  (error "Window %s too small for splitting" window))
 	 (resize
 	  ;; SIZE specified, resizing.
 	  (unless (or (window-sizable-p
@@ -4798,13 +4809,13 @@ frame.  The selected window is not changed by this function."
 		       parent (- (+ new-pixel-size divider-width)) horizontal
 		       (setq ignore 'preserved) t))
 	    ;; If we cannot resize the parent give up.
-	    (error "Window %s too small for splitting (4)" parent)))
+	    (error "Window %s too small for splitting" parent)))
 	 ((or (< new-pixel-size
 		 (window-safe-min-pixel-size window horizontal))
 	      (< (- old-pixel-size new-pixel-size)
 		 (window-safe-min-pixel-size window horizontal)))
 	  ;; SIZE specification violates minimum size restrictions.
-	  (error "Window %s too small for splitting (5)" window)))
+	  (error "Window %s too small for splitting" window)))
 
 	(window--resize-reset frame horizontal)
 
@@ -5497,7 +5508,9 @@ value can be also stored on disk and read back in a new session."
 		;; Install positions (maybe we should do this after all
 		;; windows have been created and sized).
 		(ignore-errors
-		  (set-window-start window (cdr (assq 'start state)))
+                  ;; Set 'noforce argument to avoid that window start
+                  ;; overrides window point set below (Bug#24240).
+		  (set-window-start window (cdr (assq 'start state)) 'noforce)
 		  (set-window-point window (cdr (assq 'point state))))
 		;; Select window if it's the selected one.
 		(when (cdr (assq 'selected state))
@@ -6679,8 +6692,7 @@ that allows the selected frame)."
           (window--display-buffer
            buffer window 'frame alist display-buffer-mark-dedicated)
         (unless (cdr (assq 'inhibit-switch-frame alist))
-          (window--maybe-raise-frame frame))))
-    ))
+          (window--maybe-raise-frame frame))))))
 
 (defun display-buffer-same-window (buffer alist)
   "Display BUFFER in the selected window.
@@ -7061,12 +7073,12 @@ returned from `display-buffer' in this case."
     'fail))
 
 ;;; Display + selection commands:
-(defun pop-to-buffer (buffer &optional action norecord)
-  "Select buffer BUFFER in some window, preferably a different one.
-BUFFER may be a buffer, a string (a buffer name), or nil.  If it
-is a string not naming an existent buffer, create a buffer with
-that name.  If BUFFER is nil, choose some other buffer.  Return
-the buffer.
+(defun pop-to-buffer (buffer-or-name &optional action norecord)
+  "Display buffer specified by BUFFER-OR-NAME and select its window.
+BUFFER-OR-NAME may be a buffer, a string (a buffer name), or nil.
+If it is a string not naming an existent buffer, create a buffer
+with that name.  If BUFFER-OR-NAME is nil, choose some other
+buffer.  In either case, make that buffer current and return it.
 
 This uses `display-buffer' as a subroutine.  The optional ACTION
 argument is passed to `display-buffer' as its ACTION argument.
@@ -7075,24 +7087,30 @@ interactively with a prefix argument, which means to pop to a
 window other than the selected one even if the buffer is already
 displayed in the selected window.
 
-If the window to show BUFFER is not on the selected
-frame, raise that window's frame and give it input focus.
+If a suitable window is found, select that window.  If it is not
+on the selected frame, raise that window's frame and give it
+input focus.
 
 Optional third arg NORECORD non-nil means do not put this buffer
 at the front of the list of recently selected ones."
   (interactive (list (read-buffer "Pop to buffer: " (other-buffer))
 		     (if current-prefix-arg t)))
-  (setq buffer (window-normalize-buffer-to-switch-to buffer))
-  ;; This should be done by `select-window' below.
-  ;; (set-buffer buffer)
-  (let* ((old-frame (selected-frame))
-	 (window (display-buffer buffer action))
-	 (frame (window-frame window)))
-    ;; If we chose another frame, make sure it gets input focus.
-    (unless (eq frame old-frame)
-      (select-frame-set-input-focus frame norecord))
-    ;; Make sure new window is selected (Bug#8615), (Bug#6954).
-    (select-window window norecord)
+  (let* ((buffer (window-normalize-buffer-to-switch-to buffer-or-name))
+         (old-frame (selected-frame))
+	 (window (display-buffer buffer action)))
+    ;; Don't assume that `display-buffer' has supplied us with a window
+    ;; (Bug#24332).
+    (if window
+        (let ((frame (window-frame window)))
+          ;; If we chose another frame, make sure it gets input focus.
+          (unless (eq frame old-frame)
+            (select-frame-set-input-focus frame norecord))
+          ;; Make sure the window is selected (Bug#8615), (Bug#6954)
+          (select-window window norecord))
+      ;; If `display-buffer' failed to supply a window, just make the
+      ;; buffer current.
+      (set-buffer buffer))
+    ;; Return BUFFER even when we got no window.
     buffer))
 
 (defun pop-to-buffer-same-window (buffer &optional norecord)

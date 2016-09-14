@@ -743,10 +743,12 @@ Otherwise, return a new string.  */)
   if (NILP (string))
     return Qnil;
 
+  /* If STRING contains non-ASCII unibyte data, process its
+     properly-encoded multibyte equivalent instead.  This simplifies
+     the implementation and is OK since substitute-command-keys is
+     intended for use only on text strings.  Keep STRING around, since
+     it will be returned if no changes occur.  */
   Lisp_Object str = Fstring_make_multibyte (string);
-  tem = Qnil;
-  keymap = Qnil;
-  name = Qnil;
 
   enum text_quoting_style quoting_style = text_quoting_style ();
 
@@ -819,7 +821,8 @@ Otherwise, return a new string.  */)
 	      goto do_remap;
 	    }
 
-	  /* Take relocation of string contents into account.  */
+	  /* Fwhere_is_internal can GC, so take relocation of string
+	     contents into account.  */
 	  strp = SDATA (str) + idx;
 	  start = strp - length_byte - 1;
 
@@ -905,6 +908,8 @@ Otherwise, return a new string.  */)
 	 }
 
 	subst_string:
+	  /* Convert non-ASCII unibyte data to properly-encoded multibyte,
+	     for the same reason STRING was converted to STR.  */
 	  tem = Fstring_make_multibyte (tem);
 	  start = SDATA (tem);
 	  length = SCHARS (tem);
@@ -932,7 +937,8 @@ Otherwise, return a new string.  */)
 	    bufp += length_byte;
 	    nchars += length;
 
-	    /* Take relocation of string contents into account.  */
+	    /* Some of the previous code can GC, so take relocation of
+	       string contents into account.  */
 	    strp = SDATA (str) + idx;
 
 	    continue;
@@ -1008,7 +1014,7 @@ quotes for grave accent and apostrophe.  This is done in help output
 and in functions like `message' and `format-message'.  It is not done
 in `format'.
 
-`curve' means quote with curved single quotes \\=‘like this\\=’.
+`curve' means quote with curved single quotes ‘like this’.
 `straight' means quote with straight apostrophes \\='like this\\='.
 `grave' means quote with grave accent and apostrophe \\=`like this\\=';
 i.e., do not alter quote marks.  The default value nil acts like

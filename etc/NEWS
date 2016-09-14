@@ -15,6 +15,13 @@ and NEWS.1-17 for changes in older Emacs versions.
 You can narrow news to a specific version by calling 'view-emacs-news'
 with a prefix argument or by typing C-u C-h C-n.
 
+Temporary note:
++++ indicates that all necessary documentation updates are complete.
+    (This means all relevant manuals in doc/ AND lisp doc-strings.)
+--- means no change in the manuals is needed.
+When you add a new item, use the appropriate mark if you are sure it applies,
+otherwise leave it unmarked.
+
 
 * Installation Changes in Emacs 25.2
 
@@ -54,6 +61,20 @@ affected by this, as SGI stopped supporting IRIX in December 2013.
 
 
 * Changes in Emacs 25.2
+
++++
+** The new function 'call-shell-region' executes a command in an
+inferior shell with the buffer region as input.
+
++++
+** The new user option 'shell-command-dont-erase-buffer' controls
+if the output buffer is erased between shell commands; if non-nil,
+the output buffer is not erased; this variable also controls where
+to set the point in the output buffer: beginning of the output,
+end of the buffer or save the point.
+When 'shell-command-dont-erase-buffer' is nil, the default value,
+the behaviour of 'shell-command', 'shell-command-on-region' and
+'async-shell-command' is as usual.
 
 +++
 ** The new user option 'mouse-select-region-move-to-beginning'
@@ -105,8 +126,8 @@ have been added.  They are: 'file-attribute-type',
 'file-attribute-group-id', 'file-attribute-access-time',
 'file-attribute-modification-time',
 'file-attribute-status-change-time', 'file-attribute-size',
-'file-attribute-modes', 'file-attribute-inode-number', and
-'file-attribute-device-number'.
+'file-attribute-modes', 'file-attribute-inode-number',
+'file-attribute-device-number' and 'file-attribute-collect'.
 
 +++
 ** The new function 'buffer-hash' computes a fast, non-consing hash of
@@ -199,6 +220,10 @@ In modes where form feed was treated as a whitespace character,
 It now deletes whitespace after the last form feed thus behaving the
 same as in modes where the character is not whitespace.
 
+** No more prompt about changed file when the file's content is unchanged.
+Instead of only checking the modification time, Emacs now also checks
+the file's actual content before prompting the user.
+
 
 * Changes in Specialized Modes and Packages in Emacs 25.2
 
@@ -226,13 +251,13 @@ all buffers without asking confirmation;  bound to
 'U'; 'ibuffer-do-replace-regexp' bound to 'r'.
 
 ---
-*** A new command `ibuffer-mark-by-content-regexp' to mark buffers
+*** A new command 'ibuffer-mark-by-content-regexp' to mark buffers
 whose content matches a regexp; bound to '% g'.
 
 ---
-*** Two new options `ibuffer-never-search-content-name' and
-`ibuffer-never-search-content-mode' used by
-`ibuffer-mark-by-content-regexp'.
+*** Two new options 'ibuffer-never-search-content-name' and
+'ibuffer-never-search-content-mode' used by
+'ibuffer-mark-by-content-regexp'.
 
 ** Compilation mode
 
@@ -359,7 +384,7 @@ different group ID.
 Drive onsite repositories.
 
 +++
-Setting the "ENV" environment variable in `tramp-remote-process-environment'
+Setting the "ENV" environment variable in 'tramp-remote-process-environment'
 enables reading of shell initialization files.
 
 ---
@@ -427,7 +452,7 @@ file.
 
 * New Modes and Packages in Emacs 25.2
 
-** New Elisp data-structure library `radix-tree'.
+** New Elisp data-structure library 'radix-tree'.
 
 
 * Incompatible Lisp Changes in Emacs 25.2
@@ -464,9 +489,9 @@ function 'check-declare-errmsg' has been removed.
 ** New function undo-amalgamate-change-group to get rid of undo-boundaries
 between two states.
 
-** New var `definition-prefixes' is a hashtable mapping prefixes to the
+** New var 'definition-prefixes' is a hashtable mapping prefixes to the
 files where corresponding definitions can be found.  This can be used
-to fetch definitions that are not yet loaded, for example for `C-h f'.
+to fetch definitions that are not yet loaded, for example for 'C-h f'.
 
 ** New var syntax-ppss-table to control the syntax-table used in syntax-ppss.
 
@@ -566,11 +591,11 @@ ABBR is a time zone abbreviation.  The affected functions are
 *** New basic face 'fixed-pitch-serif', for a fixed-width font with serifs.
 The Info-quoted and tex-verbatim faces now default to inheriting from it.
 
-** New built-in function `mapcan' which avoids unnecessary consing (and garbage
+** New built-in function 'mapcan' which avoids unnecessary consing (and garbage
 collection).
 
 +++
-** The new functions `make-nearby-temp-file' and `temporary-file-directory'
+** The new functions 'make-nearby-temp-file' and 'temporary-file-directory'
 can be used for creation of temporary files of remote or mounted directories.
 
 
@@ -587,7 +612,23 @@ still apply.)
 
 ** 'convert-standard-filename' no longer mirrors slashes on MS-Windows.
 Previously, on MS-Windows this function converted slash characters in
-file names into backslashes.  It no longer does that.
+file names into backslashes.  It no longer does that.  If your Lisp
+program used 'convert-standard-filename' to prepare file names to be
+passed to subprocesses (which is not the recommended usage of that
+function), you will now have to mirror slashes in your application
+code.  One possible way is this:
+
+         (let ((start 0))
+           (while (string-match "/" file-name start)
+             (aset file-name (match-beginning 0) ?\\)
+             (setq start (match-end 0))))
+
+** GUI sessions now treat SIGINT like Posix platforms do.
+The effect of delivering a Ctrl-C (SIGINT) signal to a GUI Emacs on
+MS-Windows is now the same as on Posix platforms -- Emacs saves the
+session and exits.  In particular, this will happen if you start
+emacs.exe from the Windows shell, then type Ctrl-C into that shell's
+window.
 
 
 * Installation Changes in Emacs 25.1
@@ -902,6 +943,9 @@ in meaning.
 GnuTLS encryption functions if possible.
 
 ** JSON
+
+*** 'json-encode-string' now only escapes the characters it has to.
+Which means that the encoded strings can contain non-ASCII characters.
 
 *** 'json-pretty-print' and 'json-pretty-print-buffer' now maintain
 the ordering of object keys by default.
@@ -1460,6 +1504,9 @@ looking for macro definitions.  By default, no symbols are ignored.
 
 ** TeX mode
 
+*** When in a TeX (LaTeX, etc) comment, insert a normal double quote (")
+instead of defaulting to TeX-style open (``) or close ('') quote marks.
+
 *** New custom variable 'tex-print-file-extension' to help users who
 use PDF instead of DVI.
 
@@ -1839,6 +1886,12 @@ Emacs 24.2 and earlier, which did not support unary '/'.
 that happen, 'unhandled-file-name-directory' now defaults to calling
 'file-name-as-directory'.
 
+** The URL package now insists on sending only unibyte strings to server
+This means packages that use URL cannot bind 'url-request-data' to
+multibyte strings.  If non-ASCII characters should be part of the URL
+payload, then 'url-request-data' should be encoded to become a unibyte
+string.
+
 
 * Lisp Changes in Emacs 25.1
 
@@ -2204,6 +2257,14 @@ frames.
 *** New minor mode 'window-divider-mode' and options
 'window-divider-default-places', 'window-divider-default-bottom-width'
 and 'window-divider-default-right-width'.
+
+*** When a window is shrunk horizontally its margins are no longer removed
+automatically.  Rather, Emacs refuses to split or resize windows when
+this would cause margins to no longer fit into the width reserved for the
+corresponding window.  An application can override this behavior for a
+particular window by setting that window's 'min-margins' parameter.  As
+a consequence, the application becomes fully responsible for trimming
+the margin sizes of that window and any window inheriting these margins.
 
 *** The window displaying the '*Completions*' buffer with minibuffer
 completion candidates is now shown at the bottom of the selected

@@ -58,10 +58,7 @@ static int been_here = -1;
 
 /* The name of the default console device.  */
 #ifdef WINDOWSNT
-#define DEV_TTY  "CONOUT$"
 #include "w32term.h"
-#else
-#define DEV_TTY  "/dev/tty"
 #endif
 
 static void tty_set_scroll_region (struct frame *f, int start, int stop);
@@ -596,7 +593,7 @@ encode_terminal_code (struct glyph *src, int src_len,
 		  continue;
 		if (char_charset (c, charset_list, NULL))
 		  {
-		    if (CHAR_WIDTH (c) == 0
+		    if (CHARACTER_WIDTH (c) == 0
 			&& i > 0 && COMPOSITION_GLYPH (cmp, i - 1) == '\t')
 		      /* Should be left-padded */
 		      {
@@ -1629,7 +1626,7 @@ produce_glyphs (struct it *it)
 
       if (char_charset (it->char_to_display, charset_list, NULL))
 	{
-	  it->pixel_width = CHAR_WIDTH (it->char_to_display);
+	  it->pixel_width = CHARACTER_WIDTH (it->char_to_display);
 	  it->nglyphs = it->pixel_width;
 	  if (it->glyph_row)
 	    append_glyph (it);
@@ -1835,7 +1832,7 @@ produce_glyphless_glyph (struct it *it, Lisp_Object acronym)
     }
   else if (it->glyphless_method == GLYPHLESS_DISPLAY_EMPTY_BOX)
     {
-      len = CHAR_WIDTH (it->c);
+      len = CHARACTER_WIDTH (it->c);
       if (len == 0)
 	len = 1;
       else if (len > 4)
@@ -3908,7 +3905,7 @@ dissociate_if_controlling_tty (int fd)
 /* Create a termcap display on the tty device with the given name and
    type.
 
-   If NAME is NULL, then use the controlling tty, i.e., "/dev/tty".
+   If NAME is NULL, then use the controlling tty, i.e., DEV_TTY.
    Otherwise NAME should be a path to the tty device file,
    e.g. "/dev/pts/7".
 

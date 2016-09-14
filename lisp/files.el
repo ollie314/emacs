@@ -609,9 +609,7 @@ is a valid DOS file name, but c:/bar/c:/foo is not.
 This function's standard definition is trivial; it just returns
 the argument.  However, on Windows and DOS, replace invalid
 characters.  On DOS, make sure to obey the 8.3 limitations.
-In the native Windows build, turn Cygwin names into native names,
-and also turn slashes into backslashes if the shell requires it (see
-`w32-shell-dos-semantics').
+In the native Windows build, turn Cygwin names into native names.
 
 See Info node `(elisp)Standard File Names' for more details."
   (cond
@@ -3223,16 +3221,21 @@ n  -- to ignore the local variables list.")
 (defconst hack-local-variable-regexp
   "[ \t]*\\([^][;\"'?()\\ \t\n]+\\)[ \t]*:[ \t]*")
 
-(defun hack-local-variables-prop-line (&optional mode-only)
+(defun hack-local-variables-prop-line (&optional handle-mode)
   "Return local variables specified in the -*- line.
-Returns an alist of elements (VAR . VAL), where VAR is a variable
-and VAL is the specified value.  Ignores any specification for
-`mode:' and `coding:' (which should have already been handled
-by `set-auto-mode' and `set-auto-coding', respectively).
-Return nil if the -*- line is malformed.
+Usually returns an alist of elements (VAR . VAL), where VAR is a
+variable and VAL is the specified value.  Ignores any
+specification for `coding:', and sometimes for `mode' (which
+should have already been handled by `set-auto-coding' and
+`set-auto-mode', respectively).  Return nil if the -*- line is
+malformed.
 
-If MODE-ONLY is non-nil, just returns the symbol specifying the
-mode, if there is one, otherwise nil."
+If HANDLE-MODE is nil, we return the alist of all the local
+variables in the line except `coding' as described above.  If it
+is neither nil nor t, we do the same, except that any settings of
+`mode' and `coding' are ignored.  If HANDLE-MODE is t, we ignore
+all settings in the line except for `mode', which \(if present) we
+return as the symbol specifying the mode."
   (catch 'malformed-line
     (save-excursion
       (goto-char (point-min))
@@ -3242,14 +3245,14 @@ mode, if there is one, otherwise nil."
 	       nil)
 	      ((looking-at "[ \t]*\\([^ \t\n\r:;]+\\)\\([ \t]*-\\*-\\)")
 	       ;; Simple form: "-*- MODENAME -*-".
-	       (if mode-only
+	       (if (memq handle-mode '(nil t))
 		   (intern (concat (match-string 1) "-mode"))))
 	      (t
 	       ;; Hairy form: '-*-' [ <variable> ':' <value> ';' ]* '-*-'
 	       ;; (last ";" is optional).
-	       ;; If MODE-ONLY, just check for `mode'.
+	       ;; If HANDLE-MODE is t, just check for `mode'.
 	       ;; Otherwise, parse the -*- line into the RESULT alist.
-	       (while (not (or (and mode-only result)
+	       (while (not (or (and (eq handle-mode t) result)
                                (>= (point) end)))
 		 (unless (looking-at hack-local-variable-regexp)
 		   (message "Malformed mode-line: %S"
@@ -3270,19 +3273,24 @@ mode, if there is one, otherwise nil."
 			;; That is inconsistent, but we're stuck with it.
 			;; The same can be said for `coding' in set-auto-coding.
 			(keyname (downcase (symbol-name key))))
-		   (if mode-only
-		       (and (equal keyname "mode")
-			    (setq result
-				  (intern (concat (downcase (symbol-name val))
-						  "-mode"))))
-		     (or (equal keyname "coding")
-			 (condition-case nil
-			     (push (cons (cond ((eq key 'eval) 'eval)
-					       ;; Downcase "Mode:".
-					       ((equal keyname "mode") 'mode)
-					       (t (indirect-variable key)))
-					 val) result)
-			   (error nil))))
+                   (cond
+                    ((eq handle-mode t)
+                     (and (equal keyname "mode")
+                          (setq result
+                                (intern (concat (downcase (symbol-name val))
+                                                "-mode")))))
+                    ((equal keyname "coding"))
+                    (t
+                     (when (or (not handle-mode)
+                               (not (equal keyname "mode")))
+                       (condition-case nil
+                           (push (cons (cond ((eq key 'eval) 'eval)
+                                             ;; Downcase "Mode:".
+                                             ((equal keyname "mode") 'mode)
+                                             (t (indirect-variable key)))
+                                       val)
+                                 result)
+                         (error nil)))))
 		   (skip-chars-forward " \t;")))
 	       result))))))
 
@@ -3393,7 +3401,7 @@ local variables, but directory-local variables may still be applied."
 		  ;; If HANDLE-MODE is t, and the prop line specifies a
 		  ;; mode, then we're done, and have no need to scan further.
 		  (and (setq result (hack-local-variables-prop-line
-                                     (eq handle-mode t)))
+                                     handle-mode))
 		       (eq handle-mode t)))
 	;; Look for "Local variables:" line in last page.
 	(save-excursion
@@ -7225,6 +7233,26 @@ of the form (HIGH MIDDLE . LOW): first the high bits, then the
 middle 24 bits, and finally the low 16 bits."
   (nth 11 attributes))
 
+(defun file-attribute-collect (attributes &rest attr-names)
+  "Return a sublist of ATTRIBUTES returned by `file-attributes'.
+ATTR-NAMES are symbols with the selected attribute names.
+
+Valid attribute names are: type, link-number, user-id, group-id,
+access-time, modification-time, status-change-time, size, modes,
+inode-number and device-number."
+  (let ((all '(type link-number user-id group-id access-time
+               modification-time status-change-time
+               size modes inode-number device-number))
+        result)
+    (while attr-names
+      (let ((attr (pop attr-names)))
+        (if (memq attr all)
+            (push (funcall
+                   (intern (format "file-attribute-%s" (symbol-name attr)))
+                   attributes)
+                  result)
+          (error "Wrong attribute name '%S'" attr))))
+    (nreverse result)))
 
 (define-key ctl-x-map "\C-f" 'find-file)
 (define-key ctl-x-map "\C-r" 'find-file-read-only)

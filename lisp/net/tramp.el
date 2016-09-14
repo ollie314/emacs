@@ -939,14 +939,14 @@ checked via the following code:
         (erase-buffer)
         (let ((proc (start-process (buffer-name) (current-buffer)
                                    \"ssh\" \"-l\" user host \"wc\" \"-c\")))
-          (when (memq (process-status proc) \\='(run open))
+          (when (process-live-p proc)
             (process-send-string proc (make-string sent ?\\ ))
             (process-send-eof proc)
             (process-send-eof proc))
           (while (not (progn (goto-char (point-min))
                              (re-search-forward \"\\\\w+\" (point-max) t)))
             (accept-process-output proc 1))
-          (when (memq (process-status proc) \\='(run open))
+          (when (process-live-p proc)
             (setq received (string-to-number (match-string 0)))
             (delete-process proc)
             (message \"Bytes sent: %s\\tBytes received: %s\" sent received)
@@ -2284,11 +2284,10 @@ should never be set globally, the intention is to let-bind it.")
 This is true, if either the remote host is already connected, or if we are
 not in completion mode."
   (and (tramp-tramp-file-p filename)
-       (with-parsed-tramp-file-name filename nil
-	 (or (not (tramp-completion-mode-p))
-	     (let* ((tramp-verbose 0)
-		    (p (tramp-get-connection-process v)))
-	       (and p (processp p) (memq (process-status p) '(run open))))))))
+       (or (not (tramp-completion-mode-p))
+	   (tramp-compat-process-live-p
+	    (tramp-get-connection-process
+	     (tramp-dissect-file-name filename))))))
 
 (defun tramp-completion-handle-expand-file-name (name &optional dir)
   "Like `expand-file-name' for Tramp files."
@@ -2857,7 +2856,8 @@ User is always nil."
   "Like `file-modes' for Tramp files."
   (let ((truename (or (file-truename filename) filename)))
     (when (file-exists-p truename)
-      (tramp-mode-string-to-int (nth 8 (file-attributes truename))))))
+      (tramp-mode-string-to-int
+       (tramp-compat-file-attribute-modes (file-attributes truename))))))
 
 ;; Localname manipulation functions that grok Tramp localnames...
 (defun tramp-handle-file-name-as-directory (file)
@@ -2927,13 +2927,17 @@ User is always nil."
   (cond
    ((not (file-exists-p file1)) nil)
    ((not (file-exists-p file2)) t)
-   (t (time-less-p (nth 5 (file-attributes file2))
-		   (nth 5 (file-attributes file1))))))
+   (t (time-less-p (tramp-compat-file-attribute-modification-time
+		    (file-attributes file2))
+		   (tramp-compat-file-attribute-modification-time
+		    (file-attributes file1))))))
 
 (defun tramp-handle-file-regular-p (filename)
   "Like `file-regular-p' for Tramp files."
   (and (file-exists-p filename)
-       (eq ?- (aref (nth 8 (file-attributes filename)) 0))))
+       (eq ?-
+	   (aref (tramp-compat-file-attribute-modes (file-attributes filename))
+		 0))))
 
 (defun tramp-handle-file-remote-p (filename &optional identification connected)
   "Like `file-remote-p' for Tramp files."
@@ -2942,7 +2946,7 @@ User is always nil."
     (when (tramp-tramp-file-p filename)
       (let* ((v (tramp-dissect-file-name filename))
 	     (p (tramp-get-connection-process v))
-	     (c (and p (processp p) (memq (process-status p) '(run open))
+	     (c (and (tramp-compat-process-live-p p)
 		     (tramp-get-connection-property p "connected" nil))))
 	;; We expand the file name only, if there is already a connection.
 	(with-parsed-tramp-file-name
@@ -2959,7 +2963,7 @@ User is always nil."
 (defun tramp-handle-file-symlink-p (filename)
   "Like `file-symlink-p' for Tramp files."
   (with-parsed-tramp-file-name filename nil
-    (let ((x (car (file-attributes filename))))
+    (let ((x (tramp-compat-file-attribute-type (file-attributes filename))))
       (when (stringp x)
 	(if (file-name-absolute-p x)
 	    (tramp-make-tramp-file-name method user host x)
@@ -3280,7 +3284,9 @@ User is always nil."
     (let ((remote-file-name-inhibit-cache t))
       ;; '(-1 65535) means file doesn't exists yet.
       (setq time-list
-	    (or (nth 5 (file-attributes (buffer-file-name))) '(-1 65535)))))
+	    (or (tramp-compat-file-attribute-modification-time
+		 (file-attributes (buffer-file-name)))
+		'(-1 65535)))))
   ;; We use '(0 0) as a don't-know value.
   (unless (equal time-list '(0 0))
     (tramp-run-real-handler 'set-visited-file-modtime (list time-list))))
@@ -3304,7 +3310,7 @@ of."
 	(with-parsed-tramp-file-name f nil
 	  (let* ((remote-file-name-inhibit-cache t)
 		 (attr (file-attributes f))
-		 (modtime (nth 5 attr))
+		 (modtime (tramp-compat-file-attribute-modification-time attr))
 		 (mt (visited-file-modtime)))
 
 	    (cond
@@ -3344,7 +3350,7 @@ of."
 
 (defun tramp-handle-file-notify-valid-p (proc)
   "Like `file-notify-valid-p' for Tramp files."
-  (and proc (processp proc) (memq (process-status proc) '(run open))
+  (and (tramp-compat-process-live-p proc)
        ;; Sometimes, the process is still in status `run' when the
        ;; file or directory to be watched is deleted already.
        (with-current-buffer (process-buffer proc)
@@ -3439,14 +3445,14 @@ The terminal type can be configured with `tramp-terminal-type'."
 
 (defun tramp-action-process-alive (proc _vec)
   "Check, whether a process has finished."
-  (unless (memq (process-status proc) '(run open))
+  (unless (tramp-compat-process-live-p proc)
     (throw 'tramp-action 'process-died)))
 
 (defun tramp-action-out-of-band (proc vec)
   "Check, whether an out-of-band copy has finished."
   ;; There might be pending output for the exit status.
   (tramp-accept-process-output proc 0.1)
-  (cond ((and (memq (process-status proc) '(stop exit))
+  (cond ((and (not (tramp-compat-process-live-p proc))
 	      (zerop (process-exit-status proc)))
 	 (tramp-message	vec 3 "Process has finished.")
 	 (throw 'tramp-action 'ok))
@@ -3608,14 +3614,14 @@ nil."
 	     (with-timeout (timeout)
 	       (while (not found)
 		 (tramp-accept-process-output proc 1)
-		 (unless (memq (process-status proc) '(run open))
+		 (unless (tramp-compat-process-live-p proc)
 		   (tramp-error-with-buffer
 		    nil proc 'file-error "Process has died"))
 		 (setq found (tramp-check-for-regexp proc regexp)))))
 	    (t
 	     (while (not found)
 	       (tramp-accept-process-output proc 1)
-	       (unless (memq (process-status proc) '(run open))
+	       (unless (tramp-compat-process-live-p proc)
 		 (tramp-error-with-buffer
 		  nil proc 'file-error "Process has died"))
 	       (setq found (tramp-check-for-regexp proc regexp)))))
@@ -3821,7 +3827,7 @@ ID-FORMAT valid values are `string' and `integer'."
   ;; `group-gid' has been introduced with Emacs 24.4.
   (if (and (fboundp 'group-gid) (equal id-format 'integer))
       (tramp-compat-funcall 'group-gid)
-    (nth 3 (file-attributes "~/" id-format))))
+    (tramp-compat-file-attribute-group-id (file-attributes "~/" id-format))))
 
 (defun tramp-get-local-locale (&optional vec)
   "Determine locale, supporting UTF8 if possible.
@@ -3885,23 +3891,32 @@ be granted."
           (and
            file-attr
            (or
-            ;; Not a symlink
-            (eq t (car file-attr))
-            (null (car file-attr)))
+            ;; Not a symlink.
+            (eq t (tramp-compat-file-attribute-type file-attr))
+            (null (tramp-compat-file-attribute-type file-attr)))
            (or
             ;; World accessible.
-            (eq access (aref (nth 8 file-attr) (+ offset 6)))
+            (eq access
+		(aref (tramp-compat-file-attribute-modes file-attr)
+		      (+ offset 6)))
             ;; User accessible and owned by user.
             (and
-             (eq access (aref (nth 8 file-attr) offset))
-	     (or (equal remote-uid (nth 2 file-attr))
-		 (equal unknown-id (nth 2 file-attr))))
-            ;; Group accessible and owned by user's
-            ;; principal group.
+             (eq access
+		 (aref (tramp-compat-file-attribute-modes file-attr) offset))
+	     (or (equal remote-uid
+			(tramp-compat-file-attribute-user-id file-attr))
+		 (equal unknown-id
+			(tramp-compat-file-attribute-user-id file-attr))))
+            ;; Group accessible and owned by user's principal group.
             (and
-             (eq access (aref (nth 8 file-attr) (+ offset 3)))
-             (or (equal remote-gid (nth 3 file-attr))
-		 (equal unknown-id (nth 3 file-attr))))))))))))
+             (eq access
+		 (aref (tramp-compat-file-attribute-modes file-attr)
+		       (+ offset 3)))
+             (or (equal remote-gid
+			(tramp-compat-file-attribute-group-id file-attr))
+		 (equal unknown-id
+			(tramp-compat-file-attribute-group-id
+			 file-attr))))))))))))
 
 ;;;###tramp-autoload
 (defun tramp-local-host-p (vec)

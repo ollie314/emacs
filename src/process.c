@@ -39,6 +39,10 @@ along with GNU Emacs.  If not, see <http://www.gnu.org/licenses/>.  */
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#ifdef HAVE_SETRLIMIT
+# include <sys/resource.h>
+#endif
+
 /* Are local (unix) sockets supported?  */
 #if defined (HAVE_SYS_UN_H)
 #if !defined (AF_LOCAL) && defined (AF_UNIX)
@@ -84,6 +88,7 @@ along with GNU Emacs.  If not, see <http://www.gnu.org/licenses/>.  */
 #endif
 
 #include <c-ctype.h>
+#include <flexmember.h>
 #include <sig2str.h>
 #include <verify.h>
 
@@ -1913,7 +1918,7 @@ create_process (Lisp_Object process, char **new_argv, Lisp_Object current_dir)
 	{
 	  /* I wonder: would just ioctl (0, TIOCNOTTY, 0) work here?
 	     I can't test it since I don't have 4.3.  */
-	  int j = emacs_open ("/dev/tty", O_RDWR, 0);
+	  int j = emacs_open (DEV_TTY, O_RDWR, 0);
 	  if (j >= 0)
 	    {
 	      ioctl (j, TIOCNOTTY, 0);
@@ -3803,8 +3808,8 @@ usage: (make-network-process &rest ARGS)  */)
 	struct gaicb gaicb;
 	struct addrinfo hints;
 	char str[FLEXIBLE_ARRAY_MEMBER];
-      } *req = xmalloc (offsetof (struct req, str)
-			+ hostlen + 1 + portstringlen + 1);
+      } *req = xmalloc (FLEXSIZEOF (struct req, str,
+				    hostlen + 1 + portstringlen + 1));
       dns_request = &req->gaicb;
       dns_request->ar_name = req->str;
       dns_request->ar_service = req->str + hostlen + 1;
@@ -7783,6 +7788,16 @@ init_process_emacs (int sockfd)
 #endif
       catch_child_signal ();
     }
+
+#ifdef HAVE_SETRLIMIT
+  /* Don't allocate more than FD_SETSIZE file descriptors.  */
+  struct rlimit rlim;
+  if (getrlimit (RLIMIT_NOFILE, &rlim) == 0 && FD_SETSIZE < rlim.rlim_cur)
+    {
+      rlim.rlim_cur = FD_SETSIZE;
+      setrlimit (RLIMIT_NOFILE, &rlim);
+    }
+#endif
 
   FD_ZERO (&input_wait_mask);
   FD_ZERO (&non_keyboard_wait_mask);
