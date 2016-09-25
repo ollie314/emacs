@@ -1143,17 +1143,17 @@ a new window in the current frame, splitting vertically."
   (ibuffer-do-view-1 (if other-frame 'other-frame 'horizontally)))
 
 (defun ibuffer-do-view-1 (type)
-  (let ((marked-bufs (ibuffer-get-marked-buffers)))
-    (when (null marked-bufs)
-      (setq marked-bufs (list (ibuffer-current-buffer t))))
+  (let ((marked-bufs (or (ibuffer-get-marked-buffers)
+                         (list (ibuffer-current-buffer t)))))
     (unless (and (eq type 'other-frame)
 		 (not ibuffer-expert)
 		 (> (length marked-bufs) 3)
 		 (not (y-or-n-p (format "Really create a new frame for %s buffers? "
 					(length marked-bufs)))))
-      (set-buffer-modified-p nil)
-      (delete-other-windows)
-      (switch-to-buffer (pop marked-bufs))
+      (unless (eq type 'other-frame)
+        (set-buffer-modified-p nil)
+        (delete-other-windows)
+        (switch-to-buffer (pop marked-bufs)))
       (let ((height (/ (1- (if (eq type 'horizontally) (frame-width)
 			     (frame-height)))
 		       (1+ (length marked-bufs)))))
@@ -1299,13 +1299,15 @@ a new window in the current frame, splitting vertically."
    :modifier-p t)
   (set-buffer-modified-p (not (buffer-modified-p))))
 
-(define-ibuffer-op ibuffer-do-toggle-read-only (&optional _arg);FIXME:arg unused!
+(define-ibuffer-op ibuffer-do-toggle-read-only (&optional arg)
   "Toggle read only status in marked buffers.
-With optional ARG, make read-only only if ARG is not negative."
+If optional ARG is a non-negative integer, make buffers read only.
+If ARG is a negative integer or 0, make buffers writable.
+Otherwise, toggle read only status."
   (:opstring "toggled read only status in"
    :interactive "P"
    :modifier-p t)
-  (read-only-mode 'toggle))
+  (read-only-mode (if (integerp arg) arg 'toggle)))
 
 (define-ibuffer-op ibuffer-do-delete ()
   "Kill marked buffers as with `kill-this-buffer'."

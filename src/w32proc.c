@@ -22,6 +22,9 @@ along with GNU Emacs.  If not, see <http://www.gnu.org/licenses/>.  */
      Adapted from alarm.c by Tim Fleehart
 */
 
+/* Enable GNU extensions in gnulib replacement headers.  */
+#define _GNU_SOURCE 1
+
 #include <mingw_time.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -224,7 +227,7 @@ sigismember (const sigset_t *set, int signo)
       errno = EINVAL;
       return -1;
     }
-  if (signo > sizeof (*set) * BITS_PER_CHAR)
+  if (signo > sizeof (*set) * CHAR_BIT)
     emacs_abort ();
 
   return (*set & (1U << signo)) != 0;

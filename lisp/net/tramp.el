@@ -1314,6 +1314,11 @@ necessary only.  This function will be used in file name completion."
   "Get the connection buffer to be used for VEC."
   (or (get-buffer (tramp-buffer-name vec))
       (with-current-buffer (get-buffer-create (tramp-buffer-name vec))
+	;; We use the existence of connection property "process-buffer"
+	;; as indication, whether a connection is active.
+	(tramp-set-connection-property
+	 vec "process-buffer"
+	 (tramp-get-connection-property vec "process-buffer" nil))
 	(setq buffer-undo-list t)
 	(setq default-directory
 	      (tramp-make-tramp-file-name
@@ -2283,11 +2288,12 @@ should never be set globally, the intention is to let-bind it.")
   "Check, whether it is possible to connect the remote host w/o side-effects.
 This is true, if either the remote host is already connected, or if we are
 not in completion mode."
-  (and (tramp-tramp-file-p filename)
-       (or (not (tramp-completion-mode-p))
-	   (tramp-compat-process-live-p
-	    (tramp-get-connection-process
-	     (tramp-dissect-file-name filename))))))
+  (let (tramp-verbose)
+    (and (tramp-tramp-file-p filename)
+	 (or (not (tramp-completion-mode-p))
+	     (tramp-compat-process-live-p
+	      (tramp-get-connection-process
+	       (tramp-dissect-file-name filename)))))))
 
 (defun tramp-completion-handle-expand-file-name (name &optional dir)
   "Like `expand-file-name' for Tramp files."
@@ -4163,7 +4169,8 @@ Invokes `password-read' if available, `read-passwd' else."
 				auth-passwd (if (functionp auth-passwd)
 						(funcall auth-passwd)
 					      auth-passwd))
-			(tramp-compat-funcall 'auth-source-user-or-password
+			(tramp-compat-funcall
+			 'auth-source-user-or-password
 			 "password" tramp-current-host tramp-current-method))))
 	       ;; Try the password cache.
 	       (let ((password (password-read pw-prompt key)))
@@ -4178,7 +4185,10 @@ Invokes `password-read' if available, `read-passwd' else."
 ;;;###tramp-autoload
 (defun tramp-clear-passwd (vec)
   "Clear password cache for connection related to VEC."
-  (let ((hop (tramp-file-name-hop vec)))
+  (let ((method (tramp-file-name-method vec))
+	(user (tramp-file-name-user vec))
+	(host (tramp-file-name-host vec))
+	(hop (tramp-file-name-hop vec)))
     (when hop
       ;; Clear also the passwords of the hops.
       (tramp-clear-passwd
@@ -4187,13 +4197,15 @@ Invokes `password-read' if available, `read-passwd' else."
 	 tramp-prefix-format
 	 (replace-regexp-in-string
 	  (concat tramp-postfix-hop-regexp "$")
-	  tramp-postfix-host-format hop))))))
-  (password-cache-remove
-   (tramp-make-tramp-file-name
-    (tramp-file-name-method vec)
-    (tramp-file-name-user vec)
-    (tramp-file-name-host vec)
-    "")))
+	  tramp-postfix-host-format hop)))))
+    ;; `auth-source-forget-user-or-password' is an obsoleted function
+    ;; since Emacs 24.1, it has been replaced by `auth-source-forget'.
+    (if (fboundp 'auth-source-forget)
+	(auth-source-forget
+	 `(:max 1 :user ,(or user t) :host ,host :port ,method))
+      (tramp-compat-funcall
+       'auth-source-forget-user-or-password "password" host method))
+    (password-cache-remove (tramp-make-tramp-file-name method user host ""))))
 
 ;; Snarfed code from time-date.el and parse-time.el
 
@@ -4306,30 +4318,40 @@ Only works for Bourne-like shells."
 
 ;; * In Emacs 21, `insert-directory' shows total number of bytes used
 ;;   by the files in that directory.  Add this here.
+;;
 ;; * Avoid screen blanking when hitting `g' in dired.  (Eli Tziperman)
+;;
 ;; * Better error checking.  At least whenever we see something
 ;;   strange when doing zerop, we should kill the process and start
 ;;   again.  (Greg Stark)
-;; * Username and hostname completion.
-;; ** Try to avoid usage of `last-input-event' in `tramp-completion-mode-p'.
-;; * Make `tramp-default-user' obsolete.
+;;
 ;; * Implement a general server-local-variable mechanism, as there are
 ;;   probably other variables that need different values for different
 ;;   servers too.  The user could then configure a variable (such as
 ;;   tramp-server-local-variable-alist) to define any such variables
 ;;   that they need to, which would then be let bound as appropriate
 ;;   in tramp functions.  (Jason Rumney)
+;;
 ;; * Make shadowfile.el grok Tramp filenames.  (Bug#4526, Bug#4846)
+;;
 ;; * I was wondering if it would be possible to use tramp even if I'm
 ;;   actually using sshfs.  But when I launch a command I would like
 ;;   to get it executed on the remote machine where the files really
 ;;   are.  (Andrea Crotti)
+;;
 ;; * Run emerge on two remote files.  Bug is described here:
 ;;   <http://www.mail-archive.com/tramp-devel@nongnu.org/msg01041.html>.
 ;;   (Bug#6850)
+;;
 ;; * Use also port to distinguish connections.  This is needed for
 ;;   different hosts sitting behind a single router (distinguished by
 ;;   different port numbers).  (Tzvi Edelman)
+;;
+;; * Refactor code from different handlers.  Start with
+;;   *-process-file.  One idea is to generalize `tramp-send-command'
+;;   and friends, for most of the handlers this is the major
+;;   difference between the different backends.  Other handlers but
+;;   *-process-file would profit from this as well.
 
 ;;; tramp.el ends here
 
